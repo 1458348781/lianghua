@@ -239,59 +239,23 @@ def run_year_minute_backtest(
         day_candidates = candidates_by_date.get(trade_date, {})
         minute_symbols = sorted(set(day_candidates) | set(positions))
         minute_rows = query_minutes(args, data.year, trade_date, minute_symbols)
-        if day_candidates:
-            triggers = find_intraday_triggers(minute_rows, day_candidates, strategy, trade_date)
-            for trigger in triggers:
-                symbol = trigger["symbol"]
-                if symbol in positions or len(positions) >= max_positions:
-                    continue
-                remaining_slots = max(1, max_positions - len(positions))
-                budget = cash / remaining_slots
-                entry_price = float(trigger["entry_price"]) * (1 + slippage_rate)
-                lot_size = board_lot_size(symbol)
-                quantity = int(budget / entry_price / lot_size) * lot_size if entry_price > 0 else 0
-                if quantity <= 0:
-                    continue
-                gross = quantity * entry_price
-                commission = gross * commission_rate
-                if gross + commission > cash and entry_price > 0:
-                    quantity = int(cash / (entry_price * (1 + commission_rate)) / lot_size) * lot_size
-                    gross = quantity * entry_price
-                    commission = gross * commission_rate
-                if quantity <= 0:
-                    continue
-                cash -= gross + commission
-                positions[symbol] = Position(symbol, trade_date, trigger["trade_time"], entry_price, gross + commission, quantity)
-                trades.append(
-                    {
-                        "trade_date": trade_date,
-                        "trade_time": trigger["trade_time"],
-                        "symbol": symbol,
-                        "side": "buy",
-                        "quantity": quantity,
-                        "price": round(entry_price, 4),
-                        "amount": gross,
-                        "commission": commission,
-                        "tax": 0.0,
-                        "reason": "minute breakout entry",
-                    }
-                )
-
-        if positions:
-            cash += process_intraday_exits(
-                minute_rows=minute_rows,
-                positions=positions,
-                trades=trades,
-                trade_date=trade_date,
-                daily_rows=daily_rows,
-                strategy=strategy,
-                params=params,
-                calendar_index=calendar_index,
-                hold_days=hold_days,
-                commission_rate=commission_rate,
-                stamp_tax_rate=stamp_tax_rate,
-                slippage_rate=slippage_rate,
-            )
+        cash = process_intraday_events(
+            minute_rows=minute_rows,
+            candidates=day_candidates,
+            positions=positions,
+            trades=trades,
+            trade_date=trade_date,
+            daily_rows=daily_rows,
+            strategy=strategy,
+            params=params,
+            calendar_index=calendar_index,
+            hold_days=hold_days,
+            max_positions=max_positions,
+            cash=cash,
+            commission_rate=commission_rate,
+            stamp_tax_rate=stamp_tax_rate,
+            slippage_rate=slippage_rate,
+        )
 
         close_prices = close_prices_for_date(daily_rows, trade_date, positions)
         total_value = cash + sum(pos.quantity * close_prices.get(symbol, pos.entry_price) for symbol, pos in positions.items())
@@ -383,21 +347,107 @@ def query_minutes_parquet(root: Path, trade_date: str, symbols: list[str]) -> li
     return frame.to_dict("records")
 
 
-def find_intraday_triggers(
+def process_intraday_events(
     minute_rows: list[dict[str, Any]],
     candidates: dict[str, dict[str, Any]],
-    strategy: DivergenceStrategy,
+    positions: dict[str, Position],
+    trades: list[dict[str, Any]],
     trade_date: str,
-) -> list[dict[str, Any]]:
-    state: dict[str, dict[str, float]] = {}
-    triggers: list[dict[str, Any]] = []
+    daily_rows: dict[str, dict[str, dict[str, Any]]],
+    strategy: DivergenceStrategy,
+    params: dict[str, Any],
+    calendar_index: dict[str, int],
+    hold_days: int,
+    max_positions: int,
+    cash: float,
+    commission_rate: float,
+    stamp_tax_rate: float,
+    slippage_rate: float,
+) -> float:
+    exit_state: dict[str, dict[str, float]] = {}
+    entry_state: dict[str, dict[str, float]] = {}
     triggered_symbols: set[str] = set()
     for row in minute_rows:
         symbol = str(row["symbol"])
-        if symbol in triggered_symbols or symbol not in candidates:
+        current_time = str(row["trade_time"])
+
+        position = positions.get(symbol)
+        if position is not None:
+            item = exit_state.setdefault(
+                symbol,
+                {
+                    "high": float(row["high"] or 0),
+                    "low": float(row["low"] or 0),
+                    "first_open": float(row["open"] or 0),
+                    "first_seen": 1.0,
+                },
+            )
+            item["high"] = max(float(item["high"]), float(row["high"] or 0))
+            row_low = float(row["low"] or 0)
+            item["low"] = min(float(item["low"]), row_low) if item["low"] else row_low
+            if trade_date != position.entry_date:
+                exit_price = 0.0
+                reason = ""
+                stop_price = position.entry_price * (1 + float(params["stop_loss"]))
+                if item.get("first_seen") == 1.0 and float(item.get("first_open") or 0) > 0 and float(item["first_open"]) <= stop_price:
+                    exit_price = float(item["first_open"])
+                    reason = "stop_open"
+                elif row_low <= stop_price:
+                    exit_price = stop_price
+                    reason = "stop"
+                elif current_time[-8:] >= "14:55:00":
+                    daily_row = daily_rows.get(symbol, {}).get(trade_date, {})
+                    pre_close = float(daily_row.get("pre_close") or daily_row.get("open") or 0)
+                    minute_day = {
+                        "trade_date": trade_date,
+                        "open": 0,
+                        "high": item["high"],
+                        "low": item["low"],
+                        "close": float(row["close"] or 0),
+                        "pre_close": pre_close,
+                        "pct_chg": float(row["close"] or 0) / pre_close * 100 - 100 if pre_close else 0.0,
+                    }
+                    if strategy._is_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
+                        item["first_seen"] = 0.0
+                        continue
+                    if strategy._hit_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
+                        exit_price = float(row["close"] or 0)
+                        reason = "limit_failed"
+                    elif hold_days > 0 and held_days_after_entry(calendar_index, position.entry_date, trade_date) >= hold_days:
+                        exit_price = float(row["close"] or 0)
+                        reason = "expiry"
+                item["first_seen"] = 0.0
+                if exit_price > 0:
+                    exit_price *= 1 - slippage_rate
+                    gross = position.quantity * exit_price
+                    commission = gross * commission_rate
+                    tax = gross * stamp_tax_rate
+                    proceeds = gross - commission - tax
+                    pnl = proceeds - position.amount
+                    trades.append(
+                        {
+                            "trade_date": trade_date,
+                            "trade_time": current_time,
+                            "symbol": symbol,
+                            "side": "sell",
+                            "quantity": position.quantity,
+                            "price": round(exit_price, 4),
+                            "amount": gross,
+                            "commission": commission,
+                            "tax": tax,
+                            "reason": reason,
+                            "pnl": pnl,
+                            "pnl_pct": pnl / position.amount if position.amount else 0.0,
+                            "price_return": exit_price / position.entry_price - 1 if position.entry_price else 0.0,
+                        }
+                    )
+                    cash += proceeds
+                    positions.pop(symbol, None)
+
+        if symbol not in candidates or symbol in triggered_symbols:
             continue
         previous = candidates[symbol]["previous_row"]
-        item = state.setdefault(
+        item = entry_state.setdefault(
             symbol,
             {
                 "open": float(row["open"] or 0),
@@ -408,8 +458,8 @@ def find_intraday_triggers(
             },
         )
         item["high"] = max(float(item["high"]), float(row["high"] or 0))
-        low = float(row["low"] or 0)
-        item["low"] = min(float(item["low"]), low) if item["low"] else low
+        row_low = float(row["low"] or 0)
+        item["low"] = min(float(item["low"]), row_low) if item["low"] else row_low
         item["volume"] += float(row.get("volume") or 0)
         item["amount"] += float(row.get("amount") or 0)
         pre_close = float(previous.get("close") or 0)
@@ -428,108 +478,43 @@ def find_intraday_triggers(
             "pct_chg": close / pre_close * 100 - 100 if pre_close else 0.0,
             "is_st": 0,
         }
-        if strategy._entry_day_ok(previous, entry_row):  # type: ignore[attr-defined]
-            entry_price = strategy._entry_price(previous, entry_row)  # type: ignore[attr-defined]
-            triggers.append({"symbol": symbol, "trade_time": str(row["trade_time"]), "entry_price": entry_price})
-            triggered_symbols.add(symbol)
-    return sorted(triggers, key=lambda item: (item["trade_time"], item["symbol"]))
-
-
-def process_intraday_exits(
-    minute_rows: list[dict[str, Any]],
-    positions: dict[str, Position],
-    trades: list[dict[str, Any]],
-    trade_date: str,
-    daily_rows: dict[str, dict[str, dict[str, Any]]],
-    strategy: DivergenceStrategy,
-    params: dict[str, Any],
-    calendar_index: dict[str, int],
-    hold_days: int,
-    commission_rate: float,
-    stamp_tax_rate: float,
-    slippage_rate: float,
-) -> float:
-    cash_delta = 0.0
-    state: dict[str, dict[str, float]] = {}
-    for row in minute_rows:
-        symbol = str(row["symbol"])
-        position = positions.get(symbol)
-        if position is None:
+        if not strategy._entry_day_ok(previous, entry_row):  # type: ignore[attr-defined]
             continue
-        item = state.setdefault(
-            symbol,
-            {
-                "high": float(row["high"] or 0),
-                "low": float(row["low"] or 0),
-                "first_open": float(row["open"] or 0),
-                "first_seen": 1.0,
-            },
-        )
-        item["high"] = max(float(item["high"]), float(row["high"] or 0))
-        low = float(row["low"] or 0)
-        item["low"] = min(float(item["low"]), low) if item["low"] else low
-        current_time = str(row["trade_time"])
-        if trade_date == position.entry_date:
+        triggered_symbols.add(symbol)
+        if symbol in positions or len(positions) >= max_positions:
             continue
-        exit_price = 0.0
-        reason = ""
-        stop_price = position.entry_price * (1 + float(params["stop_loss"]))
-        if item.get("first_seen") == 1.0 and float(item.get("first_open") or 0) > 0 and float(item["first_open"]) <= stop_price:
-            exit_price = float(item["first_open"])
-            reason = "stop_open"
-        elif item["low"] <= stop_price:
-            exit_price = stop_price
-            reason = "stop"
-        elif current_time[-8:] >= "14:55:00":
-            item["first_seen"] = 0.0
-            daily_row = daily_rows.get(symbol, {}).get(trade_date, {})
-            pre_close = float(daily_row.get("pre_close") or daily_row.get("open") or 0)
-            minute_day = {
-                "trade_date": trade_date,
-                "open": 0,
-                "high": item["high"],
-                "low": item["low"],
-                "close": float(row["close"] or 0),
-                "pre_close": pre_close,
-                "pct_chg": float(row["close"] or 0) / pre_close * 100 - 100 if pre_close else 0.0,
-            }
-            if strategy._is_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
-                continue
-            if strategy._hit_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
-                exit_price = float(row["close"] or 0)
-                reason = "limit_failed"
-            elif hold_days > 0 and held_days_after_entry(calendar_index, position.entry_date, trade_date) >= hold_days:
-                exit_price = float(row["close"] or 0)
-                reason = "expiry"
-        item["first_seen"] = 0.0
-        if exit_price <= 0:
+        remaining_slots = max(1, max_positions - len(positions))
+        budget = cash / remaining_slots
+        entry_price = strategy._entry_price(previous, entry_row) * (1 + slippage_rate)  # type: ignore[attr-defined]
+        lot_size = board_lot_size(symbol)
+        quantity = int(budget / entry_price / lot_size) * lot_size if entry_price > 0 else 0
+        if quantity <= 0:
             continue
-        exit_price *= 1 - slippage_rate
-        gross = position.quantity * exit_price
+        gross = quantity * entry_price
         commission = gross * commission_rate
-        tax = gross * stamp_tax_rate
-        proceeds = gross - commission - tax
-        pnl = proceeds - position.amount
+        if gross + commission > cash and entry_price > 0:
+            quantity = int(cash / (entry_price * (1 + commission_rate)) / lot_size) * lot_size
+            gross = quantity * entry_price
+            commission = gross * commission_rate
+        if quantity <= 0:
+            continue
+        cash -= gross + commission
+        positions[symbol] = Position(symbol, trade_date, current_time, entry_price, gross + commission, quantity)
         trades.append(
             {
                 "trade_date": trade_date,
                 "trade_time": current_time,
                 "symbol": symbol,
-                "side": "sell",
-                "quantity": position.quantity,
-                "price": round(exit_price, 4),
+                "side": "buy",
+                "quantity": quantity,
+                "price": round(entry_price, 4),
                 "amount": gross,
                 "commission": commission,
-                "tax": tax,
-                "reason": reason,
-                "pnl": pnl,
-                "pnl_pct": pnl / position.amount if position.amount else 0.0,
-                "price_return": exit_price / position.entry_price - 1 if position.entry_price else 0.0,
+                "tax": 0.0,
+                "reason": "minute breakout entry",
             }
         )
-        cash_delta += proceeds
-        positions.pop(symbol, None)
-    return cash_delta
+    return cash
 
 
 def close_prices_for_date(
