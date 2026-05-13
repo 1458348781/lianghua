@@ -1,0 +1,43 @@
+# Local assistant/tool settings
+.claude/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local databases and downloaded market data
+quant-platform/data/database/
+quant-platform/data/cache/
+quant-platform/data/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs and generated reports
+quant-platform/logs/
+quant-platform/reports/
+*.log
+
+# Backtest / optimization generated outputs
+result/
+result2/
+result3/
+
+# Real local alert/runtime config
+quant-platform/config/email_alert.json
+quant-platform/config/watch_positions.json
+
+# Temporary files
+.tmp-tests/
+*.tmp
+*.bak
+~$*

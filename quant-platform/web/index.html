@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>可视化量化平台</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/vendor/echarts.min.js"></script>
+  </head>
+  <body>
+    <aside class="rail">
+      <div class="brand">
+        <span>Q</span>
+        <strong>量化研究台</strong>
+      </div>
+      <nav>
+        <a href="#lab" class="active">研究</a>
+        <a href="#watch">盯盘</a>
+        <a href="#portfolio">持仓</a>
+        <a href="#result">回测</a>
+        <a href="#kline">K线</a>
+      </nav>
+      <div class="rail-note">
+        <b>本地数据</b>
+        <em id="health">检查中</em>
+      </div>
+    </aside>
+
+    <main>
+      <section class="mast">
+        <div>
+          <h1>策略回测工作台</h1>
+          <p>搜索股票，选择日期与策略，查看收益、回撤、交易明细和历史 K 线。</p>
+        </div>
+        <button id="refreshSymbols" title="刷新本地数据">刷新</button>
+      </section>
+
+      <section id="lab" class="workspace">
+        <div class="panel stock-panel">
+          <header>
+            <h2>股票池</h2>
+            <span id="localCount" class="pill">0</span>
+          </header>
+          <div class="searchbox">
+            <input id="stockSearch" placeholder="输入中文名或代码，例如 平安银行 / 000001" />
+            <button id="clearSelected" title="清空选择">清空</button>
+          </div>
+          <div id="searchResults" class="search-results"></div>
+          <div class="selected-title">已选股票</div>
+          <div id="selectedStocks" class="chips"></div>
+        </div>
+
+        <div class="panel config-panel">
+          <header>
+            <h2>回测配置</h2>
+            <span class="pill accent">T+1 / T+2</span>
+          </header>
+          <div class="form-grid">
+            <label>
+              开始时间
+              <input id="startDate" type="date" value="2024-01-01" />
+            </label>
+            <label>
+              结束时间
+              <input id="endDate" type="date" value="2024-12-31" />
+            </label>
+            <label>
+              初始资金
+              <input id="initialCash" type="number" value="1000000" />
+            </label>
+            <label>
+              策略
+              <select id="strategyName"></select>
+            </label>
+            <label class="param-field divergence-param hidden">
+              分歧参数预设
+              <select id="divergencePreset"></select>
+            </label>
+            <label>
+              手续费
+              <input id="commissionRate" type="number" value="0.0003" step="0.0001" />
+            </label>
+            <label>
+              滑点
+              <input id="slippageRate" type="number" value="0.0005" step="0.0001" />
+            </label>
+            <label>
+              印花税
+              <input id="stampTaxRate" type="number" value="0.001" step="0.0001" />
+            </label>
+            <label class="param-field ma-param">
+              短均线
+              <input id="shortWindow" type="number" value="5" />
+            </label>
+            <label class="param-field ma-param">
+              长均线
+              <input id="longWindow" type="number" value="20" />
+            </label>
+            <label class="param-field momentum-param hidden">
+              动量窗口
+              <input id="lookback" type="number" value="60" />
+            </label>
+            <label class="param-field momentum-param hidden">
+              Top K
+              <input id="topK" type="number" value="3" />
+            </label>
+            <label class="param-field short-param hidden">
+              最大持仓数
+              <input id="maxPositions" type="number" value="3" />
+            </label>
+            <label class="param-field short-param hidden">
+              持有天数
+              <input id="holdDays" type="number" value="3" min="1" />
+            </label>
+            <label class="param-field short-param hidden">
+              止损
+              <input id="stopLoss" type="number" value="-0.03" step="0.01" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+2 高开下限(%)
+              <input id="entryMinOpenGapPctChg" type="number" value="1" step="0.1" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+2 高开上限(%)
+              <input id="entryMaxOpenGapPctChg" type="number" value="5" step="0.1" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+2 最高较开盘(%)
+              <input id="entryMinHighFromOpenPctChg" type="number" value="4" step="0.1" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+1 量能上限(倍)
+              <input id="day2MaxVolumeRatio" type="number" value="1.8" step="0.05" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+1 收盘位置下限
+              <input id="day2MinClosePosition" type="number" value="0.45" step="0.05" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+1 上影线上限
+              <input id="day2MaxUpperShadow" type="number" value="0.06" step="0.005" />
+            </label>
+            <label class="param-field divergence-param hidden">
+              T+1 收盘不破T日比例
+              <input id="day2MinCloseVsDay1Close" type="number" value="0.97" step="0.005" />
+            </label>
+            <label class="param-field flow-param hidden">
+              Day2 最高涨幅上限(%)
+              <input id="flowDay2HighLimit" type="number" value="8" step="0.1" />
+            </label>
+            <label class="param-field flow-param hidden">
+              Day2 最低跌幅下限(%)
+              <input id="flowDay2LowLimit" type="number" value="-3" step="0.1" />
+            </label>
+            <label class="param-field flow-param hidden">
+              Day2 量能上限(倍)
+              <input id="flowDay2VolumeRatio" type="number" value="2" step="0.1" />
+            </label>
+            <label class="param-field flow-param hidden">
+              涨停前最长横盘天数
+              <input id="flowSidewaysDays" type="number" value="22" />
+            </label>
+            <label class="param-field flow-param hidden">
+              回调均线
+              <input id="flowPullbackMa" type="number" value="5" />
+            </label>
+            <label class="param-field flow-param hidden">
+              接近均线幅度(%)
+              <input id="flowPullbackNear" type="number" value="1" step="0.1" />
+            </label>
+            <label class="param-field flow-param hidden">
+              最多等待天数
+              <input id="flowMaxWaitDays" type="number" value="8" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              支撑均线
+              <input id="gapSupportWindow" type="number" value="5" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              支撑区上方(%)
+              <input id="gapSupportNear" type="number" value="1" step="0.1" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              脱离支撑确认(%)
+              <input id="gapSupportConfirm" type="number" value="1" step="0.1" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              长下影过滤(倍)
+              <input id="gapLongLowerRatio" type="number" value="3" step="0.1" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              高位观察窗口
+              <input id="gapHighLookback" type="number" value="20" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              长上影卖出
+              <input id="gapUpperShadowSell" type="number" value="0.08" step="0.01" />
+            </label>
+            <label class="param-field gap-t-param hidden">
+              放量卖出倍数
+              <input id="gapVolumeSellRatio" type="number" value="1.8" step="0.1" />
+            </label>
+          </div>
+          <div class="action-row">
+            <label class="inline-check" title="使用本地库里当前日期范围内有行情的全部非 ST 股票">
+              <input id="allLocalStocks" type="checkbox" />
+              <span>全部本地股票</span>
+            </label>
+            <label class="inline-check" title="全市场回算、扫描和盯盘使用的股票池">
+              <span>股票池</span>
+              <select id="marketUniverse">
+                <option value="all">全部</option>
+                <option value="chinext">创业板</option>
+                <option value="star">科创板</option>
+                <option value="main">主板及其他</option>
+              </select>
+            </label>
+            <button id="runBtn" class="primary">运行回测</button>
+            <button id="runAllBtn" class="secondary">全市场回算</button>
+            <button id="scanBtn" class="secondary">查找符合策略股票</button>
+            <span id="runStatus"></span>
+          </div>
+          <div class="signal-box">
+            <div id="signalSummary" class="signal-summary">选择策略和日期后，可以扫描当前策略触发的股票。</div>
+            <div class="table-wrap signal-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>触发日</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>T日涨幅</th>
+                    <th>T+1涨幅</th>
+                    <th>介入价</th>
+                    <th>交易价值</th>
+                    <th>原因</th>
+                  </tr>
+                </thead>
+                <tbody id="signalRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="watch" class="panel">
+        <header>
+          <div>
+            <h2>实时盯盘</h2>
+            <p id="watchSubtitle">刷新最近交易日实时快照，找出当天符合分歧战法介入条件的股票。</p>
+          </div>
+          <div class="watch-actions">
+            <span id="watchMeta" class="pill">未刷新</span>
+            <label class="inline-check compact" title="盘中自动刷新实时信号引擎">
+              <input id="watchAutoRefresh" type="checkbox" checked />
+              <span>自动刷新</span>
+            </label>
+            <select id="watchInterval" class="small-select" title="刷新间隔">
+              <option value="1" selected>1秒</option>
+              <option value="5">5秒</option>
+              <option value="10">10秒</option>
+              <option value="30">30秒</option>
+            </select>
+            <button id="watchRefresh" class="primary">刷新盯盘</button>
+          </div>
+        </header>
+        <div id="watchSummary" class="watch-summary">
+          使用当前分歧战法参数，支持按全部、创业板、科创板、主板及其他分别盯盘。
+        </div>
+        <div class="table-wrap watch-table">
+          <table>
+            <thead>
+              <tr>
+                <th>行情时间</th>
+                <th>状态</th>
+                <th>代码</th>
+                <th>名称</th>
+                <th>现价</th>
+                <th>涨跌幅</th>
+                <th>今日开盘</th>
+                <th>T+1最低涨跌</th>
+                <th>T+1最高涨跌</th>
+                <th>T日</th>
+                <th>T日涨幅</th>
+                <th>T+1</th>
+                <th>T+1涨幅</th>
+                <th>介入价</th>
+                <th>交易价值</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody id="watchRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="portfolio" class="panel">
+        <header>
+          <div>
+            <h2>持仓票</h2>
+            <p id="positionSubtitle">展示实时盯盘和手工登记的持仓、收益以及清仓记录。</p>
+          </div>
+          <div class="watch-actions">
+            <span id="positionMeta" class="pill">未刷新</span>
+            <button id="positionRefresh" class="primary">刷新持仓</button>
+          </div>
+        </header>
+        <div id="positionSummary" class="portfolio-summary"></div>
+        <div class="position-form">
+          <input id="positionSymbol" placeholder="代码，如 000001 或 000001.SZ" />
+          <input id="positionName" placeholder="名称，可空" />
+          <input id="positionEntryPrice" type="number" step="0.001" placeholder="买入价" />
+          <input id="positionQuantity" type="number" step="1" placeholder="数量，可空" />
+          <input id="positionAmount" type="number" step="0.01" placeholder="买入金额，可空" />
+          <button id="positionAdd" class="secondary">登记持仓</button>
+        </div>
+        <h3>当前持仓</h3>
+        <div class="table-wrap watch-table">
+          <table>
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>买入日</th>
+                <th>买入价</th>
+                <th>数量</th>
+                <th>买入金额</th>
+                <th>现价</th>
+                <th>市值</th>
+                <th>收益</th>
+                <th>收益率</th>
+                <th>来源</th>
+                <th>行情时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="positionRows"></tbody>
+          </table>
+        </div>
+        <h3>清仓股票</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>买入日</th>
+                <th>买入价</th>
+                <th>清仓日</th>
+                <th>清仓价</th>
+                <th>数量</th>
+                <th>买入金额</th>
+                <th>清仓金额</th>
+                <th>收益</th>
+                <th>收益率</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody id="closedPositionRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="result" class="panel">
+        <header>
+          <div>
+            <h2>回测结果</h2>
+            <p id="resultSubtitle">等待运行。</p>
+          </div>
+          <span id="backtestId" class="pill">未运行</span>
+        </header>
+        <div id="metrics" class="metrics"></div>
+        <div class="chart-grid">
+          <div id="equityChart" class="chart"></div>
+          <div id="drawdownChart" class="chart"></div>
+        </div>
+        <div class="split">
+          <div>
+            <h3>交易明细</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>代码</th>
+                    <th>名称</th>
+                    <th>方向</th>
+                    <th>数量</th>
+                    <th>价格</th>
+                    <th>原因</th>
+                    <th>盈亏</th>
+                    <th>价格涨跌</th>
+                    <th>扣费收益</th>
+                  </tr>
+                </thead>
+                <tbody id="tradeRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>月度收益</h3>
+            <div id="monthlyChart" class="small-chart"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="kline" class="panel">
+        <header>
+          <div>
+            <h2>历史 K 线</h2>
+            <p id="klineSubtitle">选择股票后自动加载。</p>
+          </div>
+          <select id="klinePeriod">
+            <option value="minute" selected>分时</option>
+            <option value="daily">日线</option>
+          </select>
+          <select id="klineSymbol"></select>
+        </header>
+        <div id="klineChart" class="kline-chart"></div>
+      </section>
+
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

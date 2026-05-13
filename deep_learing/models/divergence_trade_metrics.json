@@ -1,0 +1,74 @@
+{
+  "created_at": "2026-05-10 23:15:27",
+  "feature_names": [
+    "is_20cm",
+    "price",
+    "day1_pct_chg",
+    "day1_volume_ratio_5",
+    "day1_turnover",
+    "day1_close_position",
+    "day1_upper_shadow",
+    "day1_amplitude",
+    "day2_pct_chg",
+    "day2_volume_ratio_day1",
+    "day2_turnover",
+    "day2_close_position",
+    "day2_upper_shadow",
+    "day2_lower_shadow",
+    "day2_amplitude",
+    "day2_close_vs_day1_close",
+    "entry_open_gap_pct_chg",
+    "entry_high_from_open_pct_chg",
+    "entry_breakout_pct",
+    "ret_3",
+    "ret_5",
+    "ret_10",
+    "ret_20",
+    "amp_10",
+    "amp_20",
+    "amp_30",
+    "vol_ratio_3",
+    "vol_ratio_5",
+    "vol_ratio_10",
+    "turnover_3",
+    "turnover_5",
+    "turnover_10",
+    "limit_up_count_5",
+    "limit_up_count_10",
+    "limit_up_count_20",
+    "days_since_limit_up"
+  ],
+  "dataset_rows": 612,
+  "train_rows": 489,
+  "test_rows": 123,
+  "use_gpu_requested": true,
+  "metrics": {
+    "trade_worth": {
+      "positive_rate_train": 0.308793,
+      "positive_rate_test": 0.406504,
+      "average_precision": 0.671469,
+      "roc_auc": 0.73274,
+      "used_gpu": true
+    },
+    "limit_up_3d": {
+      "positive_rate_train": 0.319018,
+      "positive_rate_test": 0.349593,
+      "average_precision": 0.430226,
+      "roc_auc": 0.577471,
+      "used_gpu": true
+    },
+    "big_loss": {
+      "positive_rate_train": 0.652352,
+      "positive_rate_test": 0.593496,
+      "average_precision": 0.785475,
+      "roc_auc": 0.70137,
+      "used_gpu": true
+    },
+    "expected_return_3d": {
+      "target_mean_train": -0.00526,
+      "target_mean_test": 0.01794,
+      "mae": 0.098505,
+      "used_gpu": true
+    }
+  }
+}
