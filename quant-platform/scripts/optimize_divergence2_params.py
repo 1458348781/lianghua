@@ -299,21 +299,21 @@ def sample_local_params(rng: random.Random, base_params: dict[str, Any]) -> dict
                 [-0.015, -0.02, -0.025, -0.03, -0.035],
                 radius=1,
             ),
-            "min_turnover": sample_float_near(rng, base_params["min_turnover"], 1.0, 1.0, 5.0, 1),
-            "max_turnover": sample_float_near(rng, base_params["max_turnover"], 4.0, 18.0, 35.0, 1),
-            "day1_min_volume_ratio": sample_float_near(rng, base_params["day1_min_volume_ratio"], 0.25, 0.8, 1.8, 2),
-            "day1_max_volume_ratio": sample_float_near(rng, base_params["day1_max_volume_ratio"], 0.6, 2.5, 5.0, 2),
-            "range_min_amplitude_30": sample_float_near(rng, base_params["range_min_amplitude_30"], 0.04, 0.10, 0.30, 3),
-            "range_min_return_20": sample_float_near(rng, base_params["range_min_return_20"], 0.03, -0.05, 0.12, 3),
-            "day2_min_pct_chg": sample_float_near(rng, base_params["day2_min_pct_chg"], 0.8, -5.0, -2.0, 1),
-            "day2_max_pct_chg": sample_float_near(rng, base_params["day2_max_pct_chg"], 0.8, 6.0, 8.5, 1),
-            "day2_max_volume_ratio": sample_float_near(rng, base_params["day2_max_volume_ratio"], 0.2, 1.5, 2.1, 2),
-            "day2_min_close_position": sample_float_near(rng, base_params["day2_min_close_position"], 0.08, 0.35, 0.70, 2),
-            "day2_max_upper_shadow": sample_float_near(rng, base_params["day2_max_upper_shadow"], 0.02, 0.03, 0.10, 3),
-            "day2_min_close_vs_day1_close": sample_float_near(rng, base_params["day2_min_close_vs_day1_close"], 0.02, 0.94, 1.01, 3),
-            "entry_min_open_gap_pct_chg": sample_float_near(rng, base_params["entry_min_open_gap_pct_chg"], 0.4, 0.8, 2.0, 1),
-            "entry_max_open_gap_pct_chg": sample_float_near(rng, base_params["entry_max_open_gap_pct_chg"], 0.5, 5.0, 7.0, 1),
-            "entry_min_high_from_open_pct_chg": sample_float_near(rng, base_params["entry_min_high_from_open_pct_chg"], 0.5, 2.8, 4.5, 1),
+            "min_turnover": sample_float_near(rng, base_params["min_turnover"], 0.6, 1.0, 5.0, 1),
+            "max_turnover": sample_float_near(rng, base_params["max_turnover"], 2.0, 18.0, 35.0, 1),
+            "day1_min_volume_ratio": sample_float_near(rng, base_params["day1_min_volume_ratio"], 0.15, 0.8, 1.8, 2),
+            "day1_max_volume_ratio": sample_float_near(rng, base_params["day1_max_volume_ratio"], 0.35, 2.5, 5.0, 2),
+            "range_min_amplitude_30": sample_float_near(rng, base_params["range_min_amplitude_30"], 0.025, 0.10, 0.30, 3),
+            "range_min_return_20": sample_float_near(rng, base_params["range_min_return_20"], 0.02, -0.05, 0.12, 3),
+            "day2_min_pct_chg": sample_float_near(rng, base_params["day2_min_pct_chg"], 0.5, -5.0, -2.0, 1),
+            "day2_max_pct_chg": sample_float_near(rng, base_params["day2_max_pct_chg"], 0.5, 6.0, 8.5, 1),
+            "day2_max_volume_ratio": sample_float_near(rng, base_params["day2_max_volume_ratio"], 0.12, 1.5, 2.1, 2),
+            "day2_min_close_position": sample_float_near(rng, base_params["day2_min_close_position"], 0.05, 0.35, 0.70, 2),
+            "day2_max_upper_shadow": sample_float_near(rng, base_params["day2_max_upper_shadow"], 0.012, 0.03, 0.10, 3),
+            "day2_min_close_vs_day1_close": sample_float_near(rng, base_params["day2_min_close_vs_day1_close"], 0.012, 0.94, 1.01, 3),
+            "entry_min_open_gap_pct_chg": sample_float_near_step(rng, base_params["entry_min_open_gap_pct_chg"], 0.25, 0.8, 2.0, 0.05, 2),
+            "entry_max_open_gap_pct_chg": sample_float_near_step(rng, base_params["entry_max_open_gap_pct_chg"], 0.35, 5.0, 7.0, 0.05, 2),
+            "entry_min_high_from_open_pct_chg": sample_float_near_step(rng, base_params["entry_min_high_from_open_pct_chg"], 0.30, 2.8, 4.5, 0.05, 2),
         }
     )
     return params
@@ -343,6 +343,25 @@ def sample_float_near(
     value = float(center)
     sampled = rng.uniform(max(low, value - radius), min(high, value + radius))
     return round(sampled, digits)
+
+
+def sample_float_near_step(
+    rng: random.Random,
+    center: Any,
+    radius: float,
+    low: float,
+    high: float,
+    step: float,
+    digits: int,
+) -> float:
+    value = float(center)
+    lower = max(low, value - radius)
+    upper = min(high, value + radius)
+    start = int((lower + 1e-12) / step + 0.999999)
+    end = int((upper + 1e-12) / step)
+    if start > end:
+        return round(min(max(value, low), high), digits)
+    return round(rng.randint(start, end) * step, digits)
 
 
 def load_years_data(
