@@ -31,26 +31,26 @@ INITIAL_CAPITAL = 1_000_000.0
 
 DEFAULT_PARAMS: dict[str, Any] = {
     "max_positions": 2,
-    "hold_days": 2,
-    "stop_loss": -0.025,
+    "hold_days": 5,
+    "stop_loss": -0.02,
     "strong_close_pct_chg": 5.0,
     "min_price": 3,
     "max_price": 500,
-    "min_turnover": 3.0,
-    "max_turnover": 24.4,
-    "day1_min_volume_ratio": 0.85,
-    "day1_max_volume_ratio": 5.59,
-    "range_min_amplitude_30": 0.108,
-    "range_min_return_20": 0.039,
-    "day2_min_pct_chg": -1.6,
-    "day2_max_pct_chg": 8.4,
-    "day2_max_volume_ratio": 2.15,
-    "day2_min_close_position": 0.51,
-    "day2_max_upper_shadow": 0.075,
-    "day2_min_close_vs_day1_close": 0.954,
-    "entry_min_open_gap_pct_chg": 1.2,
-    "entry_max_open_gap_pct_chg": 6.3,
-    "entry_min_high_from_open_pct_chg": 2.7,
+    "min_turnover": 1.9,
+    "max_turnover": 33.2,
+    "day1_min_volume_ratio": 1.03,
+    "day1_max_volume_ratio": 3.2,
+    "range_min_amplitude_30": 0.214,
+    "range_min_return_20": -0.005,
+    "day2_min_pct_chg": -4.0,
+    "day2_max_pct_chg": 8.0,
+    "day2_max_volume_ratio": 1.94,
+    "day2_min_close_position": 0.41,
+    "day2_max_upper_shadow": 0.086,
+    "day2_min_close_vs_day1_close": 0.963,
+    "entry_min_open_gap_pct_chg": 1.3,
+    "entry_max_open_gap_pct_chg": 6.5,
+    "entry_min_high_from_open_pct_chg": 3.3,
 }
 
 
@@ -198,14 +198,21 @@ def run_once(args: argparse.Namespace, state: dict[str, Any] | None = None) -> N
             buy_price = strategy._entry_price(t1, t2)  # type: ignore[attr-defined]
             current_vs_buy = quote["price"] / buy_price * 100 - 100 if buy_price else 0
             current_from_open = quote["price"] / quote["open"] * 100 - 100 if quote.get("open") else 0
-            status = "tail_ready" if is_after_tail_window(str(quote.get("quote_time") or "")) and current_vs_buy >= 0 and current_from_open >= 3 else "triggered"
+            min_high_from_open = float(DEFAULT_PARAMS["entry_min_high_from_open_pct_chg"])
+            status = (
+                "tail_ready"
+                if is_after_tail_window(str(quote.get("quote_time") or ""))
+                and current_vs_buy >= 0
+                and current_from_open >= min_high_from_open
+                else "triggered"
+            )
             position_rows.append(
                 {
                     "symbol": symbol,
                     "name": profiles.get(symbol, {}).get("name") or quote.get("name", ""),
                     "entry_date": quote_date,
                     "entry_price": round(float(buy_price), 4),
-                    "hold_days": int(DEFAULT_PARAMS.get("hold_days", 2)),
+                    "hold_days": int(DEFAULT_PARAMS.get("hold_days", 5)),
                     "active": True,
                     "source": f"realtime_{status}",
                     "status": status,
@@ -275,17 +282,22 @@ def auto_track_positions(position_file: Path, rows: list[dict[str, Any]], initia
         if not symbol or symbol in existing or entry_price <= 0:
             continue
         amount = next_position_amount(payload, max_positions, initial_capital)
-        if amount <= 0:
+        lot_size = board_lot_size(symbol)
+        quantity = int(amount / entry_price / lot_size) * lot_size
+        if amount <= 0 or quantity <= 0:
             continue
+        amount = quantity * entry_price
         positions.append(
             {
                 "symbol": symbol,
                 "name": row.get("name") or "",
                 "entry_date": row.get("entry_date") or datetime.now().date().isoformat(),
                 "entry_price": round(entry_price, 4),
+                "quantity": quantity,
+                "lot_size": lot_size,
                 "amount": round(amount, 2),
                 "entry_amount": round(amount, 2),
-                "hold_days": int(row.get("hold_days") or DEFAULT_PARAMS.get("hold_days", 2)),
+                "hold_days": int(row.get("hold_days") or DEFAULT_PARAMS.get("hold_days", 5)),
                 "active": True,
                 "source": row.get("source") or "realtime_triggered",
                 "trigger_time": row.get("trigger_time") or "",
@@ -322,6 +334,12 @@ def position_entry_amount(position: dict[str, Any]) -> float:
     quantity = safe_float(position.get("quantity"))
     entry_price = safe_float(position.get("entry_price"))
     return max(0.0, quantity * entry_price)
+
+
+def board_lot_size(symbol: str) -> int:
+    normalized = normalize_symbol(symbol)
+    code, exchange = normalized.split(".")
+    return 200 if exchange == "SZ" and code.startswith(("300", "301")) else 100
 
 
 def closed_realized_pnl(position: dict[str, Any]) -> float:

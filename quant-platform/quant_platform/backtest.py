@@ -126,7 +126,7 @@ class BacktestEngine:
                 "日线前复权价格",
                 "T 日收盘后生成信号，T+1 日开盘成交",
                 "未处理涨跌停、停牌和幸存者偏差",
-                "A 股按 100 股整数手成交",
+                "普通 A 股按 100 股、创业板按 200 股整数手成交",
                 "手续费、滑点、印花税按固定比例近似",
             ],
         }
@@ -165,12 +165,13 @@ class BacktestEngine:
                 continue
             if diff_value > 0:
                 price = raw_price * (1 + slippage_rate)
-                quantity = int(diff_value / price / 100) * 100
+                lot_size = board_lot_size(symbol)
+                quantity = int(diff_value / price / lot_size) * lot_size
                 if quantity <= 0:
                     continue
                 gross = quantity * price
                 commission = gross * commission_rate
-                affordable = int(self.portfolio.cash / (price * (1 + commission_rate)) / 100) * 100
+                affordable = int(self.portfolio.cash / (price * (1 + commission_rate)) / lot_size) * lot_size
                 quantity = min(quantity, affordable)
                 if quantity <= 0:
                     continue
@@ -198,7 +199,8 @@ class BacktestEngine:
                 )
             else:
                 price = raw_price * (1 - slippage_rate)
-                quantity = int(abs(diff_value) / price / 100) * 100
+                lot_size = board_lot_size(symbol)
+                quantity = int(abs(diff_value) / price / lot_size) * lot_size
                 quantity = min(quantity, position.quantity)
                 if quantity <= 0:
                     continue
@@ -232,7 +234,6 @@ class BacktestEngine:
                         name=self.symbol_names.get(symbol, ""),
                     )
                 )
-
     def _snapshot(self, trade_date: str, prices: dict[str, float]) -> None:
         market_value = self.portfolio.market_value(prices)
         total_value = self.portfolio.cash + market_value
@@ -258,3 +259,9 @@ class BacktestEngine:
                     "market_value": round(position.quantity * price, 2),
                 }
             )
+
+
+def board_lot_size(symbol: str) -> int:
+    normalized = normalize_symbol(symbol)
+    code, exchange = normalized.split(".")
+    return 200 if exchange == "SZ" and code.startswith(("300", "301")) else 100

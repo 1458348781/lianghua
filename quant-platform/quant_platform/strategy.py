@@ -129,28 +129,28 @@ class MomentumStrategy(Strategy):
 class DivergenceStrategy(Strategy):
     name = "divergence_tactic"
     label = "分歧流2"
-    description = "原分歧流：涨停后分歧确认，T+2 高开并走强突破后买入。"
+    description = "分歧流2：T/T+1 可控分歧后，T+2 盘中突破即买。"
     params = {
         "max_positions": 2,
-        "hold_days": 2,
-        "stop_loss": -0.025,
+        "hold_days": 5,
+        "stop_loss": -0.02,
         "min_price": 3,
         "max_price": 500,
-        "min_turnover": 3.0,
-        "max_turnover": 24.4,
-        "day1_min_volume_ratio": 0.85,
-        "day1_max_volume_ratio": 5.59,
-        "range_min_amplitude_30": 0.108,
-        "range_min_return_20": 0.039,
-        "day2_min_pct_chg": -1.6,
-        "day2_max_pct_chg": 8.4,
-        "day2_max_volume_ratio": 2.15,
-        "day2_min_close_position": 0.51,
-        "day2_max_upper_shadow": 0.075,
-        "day2_min_close_vs_day1_close": 0.954,
-        "entry_min_open_gap_pct_chg": 1.2,
-        "entry_max_open_gap_pct_chg": 6.3,
-        "entry_min_high_from_open_pct_chg": 2.7,
+        "min_turnover": 1.9,
+        "max_turnover": 33.2,
+        "day1_min_volume_ratio": 1.03,
+        "day1_max_volume_ratio": 3.2,
+        "range_min_amplitude_30": 0.214,
+        "range_min_return_20": -0.005,
+        "day2_min_pct_chg": -4.0,
+        "day2_max_pct_chg": 8.0,
+        "day2_max_volume_ratio": 1.94,
+        "day2_min_close_position": 0.41,
+        "day2_max_upper_shadow": 0.086,
+        "day2_min_close_vs_day1_close": 0.963,
+        "entry_min_open_gap_pct_chg": 1.3,
+        "entry_max_open_gap_pct_chg": 6.5,
+        "entry_min_high_from_open_pct_chg": 3.3,
     }
 
     def init(self, context: Context) -> None:
@@ -211,7 +211,7 @@ class DivergenceStrategy(Strategy):
                 self.entries.pop(symbol, None)
                 continue
             hold_days = int(self.params.get("hold_days", 0) or 0)
-            if hold_days > 0 and self._calendar_distance(context, entry["entry_date"], row["trade_date"]) >= hold_days:
+            if hold_days > 0 and self._held_days_after_entry(context, entry["entry_date"], row["trade_date"]) >= hold_days:
                 context.order_target_percent(symbol, 0, "hold days expired", price=close, execute_now=True)
                 self.entries.pop(symbol, None)
 
@@ -343,6 +343,12 @@ class DivergenceStrategy(Strategy):
         if start not in calendar_index or end not in calendar_index:
             return 0
         return calendar_index[end] - calendar_index[start] + 1
+
+    def _held_days_after_entry(self, context: Context, start: str, end: str) -> int:
+        calendar_index = context.config.get("calendar_index", {})
+        if start not in calendar_index or end not in calendar_index:
+            return 0
+        return max(0, calendar_index[end] - calendar_index[start])
 
     def _ma(self, rows: list[dict[str, Any]], count: int) -> float:
         if len(rows) < count:

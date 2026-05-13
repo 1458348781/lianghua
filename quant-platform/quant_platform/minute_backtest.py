@@ -90,11 +90,12 @@ class DivergenceMinuteBacktestEngine:
                     entry_price = float(trigger["entry_price"]) * (1 + slippage_rate)
                     if entry_price <= 0:
                         continue
-                    quantity = budget / entry_price
+                    lot_size = board_lot_size(symbol)
+                    quantity = int(budget / entry_price / lot_size) * lot_size
                     gross = quantity * entry_price
                     commission = gross * commission_rate
                     if gross + commission > cash:
-                        quantity = cash / (entry_price * (1 + commission_rate))
+                        quantity = int(cash / (entry_price * (1 + commission_rate)) / lot_size) * lot_size
                         gross = quantity * entry_price
                         commission = gross * commission_rate
                     if quantity <= 0:
@@ -164,8 +165,8 @@ class DivergenceMinuteBacktestEngine:
             "trades": trades,
             "assumptions": [
                 "分歧2页面回算使用分钟级触发：日线筛选 T/T+1 候选，分钟线盘中突破后买入。",
-                "买入金额按剩余现金 / 剩余可开仓数量动态分配，和实盘盯盘保持一致。",
-                "卖出按分钟线检查止损，尾盘检查炸板/到期退出。",
+                "买入金额按剩余现金 / 剩余可开仓数量动态分配，普通 A 股按 100 股、创业板按 200 股向下取整。",
+                "买入当天不卖；次日起先按开盘破止损检查，再按盘中止损、14:55 后炸板/到期退出检查。",
                 "分钟数据优先读本地 SQLite stock_minute，不足时读取 D:\\BaiduNetdiskDownload\\1m_price 年度 parquet。",
                 f"分钟数据命中交易日 {self.minute_days_loaded} 个，缺失交易日 {self.minute_days_missing} 个。",
             ],
@@ -328,7 +329,15 @@ class DivergenceMinuteBacktestEngine:
             position = positions.get(symbol)
             if position is None:
                 continue
-            item = state.setdefault(symbol, {"high": float(row["high"] or 0), "low": float(row["low"] or 0)})
+            item = state.setdefault(
+                symbol,
+                {
+                    "high": float(row["high"] or 0),
+                    "low": float(row["low"] or 0),
+                    "first_open": float(row["open"] or 0),
+                    "first_seen": 1.0,
+                },
+            )
             item["high"] = max(float(item["high"]), float(row["high"] or 0))
             low = float(row["low"] or 0)
             item["low"] = min(float(item["low"]), low) if item["low"] else low
@@ -338,10 +347,14 @@ class DivergenceMinuteBacktestEngine:
             exit_price = 0.0
             reason = ""
             stop_price = position.entry_price * (1 + float(self.strategy.params["stop_loss"]))
-            if item["low"] <= stop_price:
+            if item.get("first_seen") == 1.0 and float(item.get("first_open") or 0) > 0 and float(item["first_open"]) <= stop_price:
+                exit_price = float(item["first_open"])
+                reason = "stop_open"
+            elif item["low"] <= stop_price:
                 exit_price = stop_price
                 reason = "stop"
             elif current_time[-8:] >= "14:55:00":
+                item["first_seen"] = 0.0
                 daily_row = daily_rows.get(symbol, {}).get(trade_date, {})
                 pre_close = float(daily_row.get("pre_close") or daily_row.get("open") or 0)
                 minute_day = {
@@ -358,9 +371,10 @@ class DivergenceMinuteBacktestEngine:
                 if self.strategy._hit_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
                     exit_price = float(row["close"] or 0)
                     reason = "limit_failed"
-                elif hold_days > 0 and self._calendar_distance(position.entry_date, trade_date) >= hold_days:
+                elif hold_days > 0 and self._held_days_after_entry(position.entry_date, trade_date) >= hold_days:
                     exit_price = float(row["close"] or 0)
                     reason = "expiry"
+            item["first_seen"] = 0.0
             if exit_price <= 0:
                 continue
             exit_price *= 1 - slippage_rate
@@ -395,6 +409,10 @@ class DivergenceMinuteBacktestEngine:
         calendar_index = self.config.get("calendar_index", {})
         return int(calendar_index.get(trade_date, 0)) - int(calendar_index.get(entry_date, 0)) + 1
 
+    def _held_days_after_entry(self, entry_date: str, trade_date: str) -> int:
+        calendar_index = self.config.get("calendar_index", {})
+        return max(0, int(calendar_index.get(trade_date, 0)) - int(calendar_index.get(entry_date, 0)))
+
     def _close_prices_for_date(
         self,
         daily_rows: dict[str, dict[str, dict[str, Any]]],
@@ -428,3 +446,9 @@ class DivergenceMinuteBacktestEngine:
 
 def chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def board_lot_size(symbol: str) -> int:
+    normalized = normalize_symbol(symbol)
+    code, exchange = normalized.split(".")
+    return 200 if exchange == "SZ" and code.startswith(("300", "301")) else 100

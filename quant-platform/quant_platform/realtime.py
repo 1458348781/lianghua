@@ -454,7 +454,7 @@ def _classify_realtime_status(
     if not entry_ok:
         return "candidate", "T 和 T+1 已成立，等待 T+2 放量突破", reasons or ["等待盘中突破"]
 
-    if after_tail_window and current_vs_buy >= 0 and current_from_open >= 3:
+    if after_tail_window and current_vs_buy >= 0 and current_from_open >= min_high:
         return "tail_ready", "尾盘仍站在介入价上方，可重点确认", ["T+2 盘中突破已触发", "尾盘价格仍有效"]
     if current_vs_buy < 0:
         return "triggered", "盘中突破过，但现价回落到介入价下方", ["T+2 盘中突破已触发", f"现价较介入价 {current_vs_buy:.2f}%"]

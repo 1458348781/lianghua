@@ -32,29 +32,29 @@ INITIAL_CAPITAL = 1_000_000.0
 
 DEFAULT_PARAMS: dict[str, Any] = {
     "max_positions": 2,
-    "hold_days": 2,
-    "stop_loss": -0.025,
+    "hold_days": 5,
+    "stop_loss": -0.02,
     "strong_close_pct_chg": 5.0,
     "min_price": 3,
     "max_price": 500,
-    "min_turnover": 3.0,
-    "max_turnover": 24.4,
-    "day1_min_volume_ratio": 0.85,
-    "day1_max_volume_ratio": 5.59,
-    "range_min_amplitude_30": 0.108,
-    "range_min_return_20": 0.039,
-    "day2_min_pct_chg": -1.6,
-    "day2_max_pct_chg": 8.4,
-    "day2_max_volume_ratio": 2.15,
-    "day2_min_close_position": 0.51,
-    "day2_max_upper_shadow": 0.075,
-    "day2_min_close_vs_day1_close": 0.954,
-    "entry_min_open_gap_pct_chg": 1.2,
-    "entry_max_open_gap_pct_chg": 6.3,
-    "entry_min_high_from_open_pct_chg": 2.7,
+    "min_turnover": 1.9,
+    "max_turnover": 33.2,
+    "day1_min_volume_ratio": 1.03,
+    "day1_max_volume_ratio": 3.2,
+    "range_min_amplitude_30": 0.214,
+    "range_min_return_20": -0.005,
+    "day2_min_pct_chg": -4.0,
+    "day2_max_pct_chg": 8.0,
+    "day2_max_volume_ratio": 1.94,
+    "day2_min_close_position": 0.41,
+    "day2_max_upper_shadow": 0.086,
+    "day2_min_close_vs_day1_close": 0.963,
+    "entry_min_open_gap_pct_chg": 1.3,
+    "entry_max_open_gap_pct_chg": 6.5,
+    "entry_min_high_from_open_pct_chg": 3.3,
 }
 
-HARD_EXIT_ALERTS = {"stop", "limit_failed", "expiry"}
+HARD_EXIT_ALERTS = {"stop_open", "stop", "limit_failed", "expiry"}
 
 
 def main() -> None:
@@ -354,17 +354,22 @@ def auto_track_positions(position_file: Path, rows: list[dict[str, Any]], entry_
         if entry_price <= 0:
             continue
         amount = next_position_amount(payload, max_positions, INITIAL_CAPITAL)
-        if amount <= 0:
+        lot_size = board_lot_size(symbol)
+        quantity = int(amount / entry_price / lot_size) * lot_size
+        if amount <= 0 or quantity <= 0:
             continue
+        amount = quantity * entry_price
         positions.append(
             {
                 "symbol": symbol,
                 "name": item.get("name") or "",
                 "entry_date": entry_date,
                 "entry_price": round(entry_price, 4),
+                "quantity": quantity,
+                "lot_size": lot_size,
                 "amount": round(amount, 2),
                 "entry_amount": round(amount, 2),
-                "hold_days": int(DEFAULT_PARAMS.get("hold_days", 2)),
+                "hold_days": int(DEFAULT_PARAMS.get("hold_days", 5)),
                 "active": True,
                 "source": "auto_breakout",
                 "trigger_time": item.get("trigger_time") or "",
@@ -398,6 +403,12 @@ def position_entry_amount(position: dict[str, Any]) -> float:
     quantity = to_float(position.get("quantity"))
     entry_price = to_float(position.get("entry_price"))
     return max(0.0, quantity * entry_price)
+
+
+def board_lot_size(symbol: str) -> int:
+    normalized = normalize_symbol(symbol)
+    code, exchange = normalized.split(".")
+    return 200 if exchange == "SZ" and code.startswith(("300", "301")) else 100
 
 
 def closed_realized_pnl(position: dict[str, Any]) -> float:
@@ -435,6 +446,7 @@ def strategy_exit_alerts(
 ) -> list[tuple[str, str]]:
     entry_price = to_float(position.get("entry_price"))
     price = to_float(quote.get("price"))
+    open_ = to_float(quote.get("open"))
     high = to_float(quote.get("high"))
     low = to_float(quote.get("low"))
     pre_close = to_float(quote.get("pre_close"))
@@ -443,11 +455,13 @@ def strategy_exit_alerts(
         return []
 
     stop_price = entry_price * (1 + float(DEFAULT_PARAMS["stop_loss"]))
-    hold_days = int(position.get("hold_days") or DEFAULT_PARAMS.get("hold_days", 2))
+    hold_days = int(position.get("hold_days") or DEFAULT_PARAMS.get("hold_days", 5))
     entry_date = str(position.get("entry_date") or today)
     held_days = position_held_trading_days(db, symbol, entry_date, today, calendar_cache)
     is_entry_day = entry_date == today
 
+    if not is_entry_day and open_ > 0 and open_ <= stop_price:
+        return [("stop_open", f"开盘破止损：开盘 {num(open_)} <= 止损价 {num(stop_price)}")]
     if not is_entry_day and low > 0 and low <= stop_price:
         return [("stop", f"已触发止损：最低 {num(low)} <= 止损价 {num(stop_price)}")]
     if not is_entry_day and price <= stop_price * (1 + buffer_ratio):
@@ -460,8 +474,9 @@ def strategy_exit_alerts(
     close_execution_window = is_time_at_or_after(quote_time, "14:55")
     if hit_limit and close_execution_window:
         return [("limit_failed", "涨停炸板未回封：按回算规则卖出")]
-    if hold_days > 0 and held_days >= hold_days and close_execution_window:
-        return [("expiry", f"持仓天数到期：已持有 {held_days} 个交易日，策略持有 {hold_days} 日，按回算规则卖出")]
+    held_after_entry = max(0, held_days - 1)
+    if hold_days > 0 and held_after_entry >= hold_days and close_execution_window:
+        return [("expiry", f"持仓天数到期：买入后已持有 {held_after_entry} 个交易日，策略持有 {hold_days} 日，按回算规则卖出")]
     return []
 
 
@@ -482,7 +497,9 @@ def close_position_for_strategy_exit(
         quantity = entry_amount / entry_price
     if entry_amount <= 0 and quantity > 0 and entry_price > 0:
         entry_amount = quantity * entry_price
-    if alert_type == "stop":
+    if alert_type == "stop_open":
+        exit_price = to_float(quote.get("open"))
+    elif alert_type == "stop":
         exit_price = entry_price * (1 + float(DEFAULT_PARAMS["stop_loss"]))
     else:
         exit_price = to_float(quote.get("price"))

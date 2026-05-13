@@ -248,13 +248,14 @@ def run_year_minute_backtest(
                 remaining_slots = max(1, max_positions - len(positions))
                 budget = cash / remaining_slots
                 entry_price = float(trigger["entry_price"]) * (1 + slippage_rate)
-                quantity = budget / entry_price if entry_price > 0 else 0
+                lot_size = board_lot_size(symbol)
+                quantity = int(budget / entry_price / lot_size) * lot_size if entry_price > 0 else 0
                 if quantity <= 0:
                     continue
                 gross = quantity * entry_price
                 commission = gross * commission_rate
                 if gross + commission > cash and entry_price > 0:
-                    quantity = cash / (entry_price * (1 + commission_rate))
+                    quantity = int(cash / (entry_price * (1 + commission_rate)) / lot_size) * lot_size
                     gross = quantity * entry_price
                     commission = gross * commission_rate
                 if quantity <= 0:
@@ -460,6 +461,8 @@ def process_intraday_exits(
             {
                 "high": float(row["high"] or 0),
                 "low": float(row["low"] or 0),
+                "first_open": float(row["open"] or 0),
+                "first_seen": 1.0,
             },
         )
         item["high"] = max(float(item["high"]), float(row["high"] or 0))
@@ -471,10 +474,14 @@ def process_intraday_exits(
         exit_price = 0.0
         reason = ""
         stop_price = position.entry_price * (1 + float(params["stop_loss"]))
-        if item["low"] <= stop_price:
+        if item.get("first_seen") == 1.0 and float(item.get("first_open") or 0) > 0 and float(item["first_open"]) <= stop_price:
+            exit_price = float(item["first_open"])
+            reason = "stop_open"
+        elif item["low"] <= stop_price:
             exit_price = stop_price
             reason = "stop"
         elif current_time[-8:] >= "14:55:00":
+            item["first_seen"] = 0.0
             daily_row = daily_rows.get(symbol, {}).get(trade_date, {})
             pre_close = float(daily_row.get("pre_close") or daily_row.get("open") or 0)
             minute_day = {
@@ -491,9 +498,10 @@ def process_intraday_exits(
             if strategy._hit_limit_up(symbol, minute_day):  # type: ignore[attr-defined]
                 exit_price = float(row["close"] or 0)
                 reason = "limit_failed"
-            elif hold_days > 0 and calendar_index.get(trade_date, 0) - calendar_index.get(position.entry_date, 0) + 1 >= hold_days:
+            elif hold_days > 0 and held_days_after_entry(calendar_index, position.entry_date, trade_date) >= hold_days:
                 exit_price = float(row["close"] or 0)
                 reason = "expiry"
+        item["first_seen"] = 0.0
         if exit_price <= 0:
             continue
         exit_price *= 1 - slippage_rate
@@ -569,6 +577,19 @@ def empty_result(initial_cash: float) -> dict[str, Any]:
 
 def chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def held_days_after_entry(calendar_index: dict[str, int], entry_date: str, trade_date: str) -> int:
+    return max(0, int(calendar_index.get(trade_date, 0)) - int(calendar_index.get(entry_date, 0)))
+
+
+def board_lot_size(symbol: str) -> int:
+    normalized = str(symbol).upper()
+    if "." in normalized:
+        code, exchange = normalized.split(".", 1)
+    else:
+        code, exchange = normalized[:6], ""
+    return 200 if exchange == "SZ" and code.startswith(("300", "301")) else 100
 
 
 if __name__ == "__main__":
