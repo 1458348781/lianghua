@@ -107,7 +107,7 @@ def main() -> None:
     parser.add_argument("--symbol-limit", type=int, default=0, help="Only for smoke testing.")
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument("--commission-rate", type=float, default=0.0003)
-    parser.add_argument("--slippage-rate", type=float, default=0.0005)
+    parser.add_argument("--slippage-rate", type=float, default=0.001)
     parser.add_argument("--stamp-tax-rate", type=float, default=0.001)
     parser.add_argument("--base-params-json", default="", help="JSON with best_params, base_params, or raw params.")
     parser.add_argument("--local-search", action="store_true", help="Sample near --base-params-json instead of broad random search.")
@@ -421,9 +421,9 @@ def run_year_backtest(
         "end_date": data.end_date,
         "data_start_date": scan_start_with_buffer(data.start_date),
         "initial_cash": float(args.get("initial_cash") or 1_000_000),
-        "commission_rate": float(args.get("commission_rate") or 0.0003),
-        "slippage_rate": float(args.get("slippage_rate") or 0.0005),
-        "stamp_tax_rate": float(args.get("stamp_tax_rate") or 0.001),
+        "commission_rate": float(args["commission_rate"]) if "commission_rate" in args else 0.0003,
+        "slippage_rate": float(args["slippage_rate"]) if "slippage_rate" in args else 0.001,
+        "stamp_tax_rate": float(args["stamp_tax_rate"]) if "stamp_tax_rate" in args else 0.001,
         "params": params,
         "universe": "all",
         "universe_symbol_count": len(data.symbols),
@@ -475,18 +475,22 @@ def score_metrics(metrics: dict[str, Any], min_trades: int) -> float:
     sharpe = float(metrics.get("sharpe") or 0)
     win_rate = float(metrics.get("win_rate") or 0)
     avg_trade = float(metrics.get("avg_trade_return") or 0)
+    worst_trade = abs(float(metrics.get("worst_trade_return") or 0))
     trades = int(metrics.get("trade_count") or 0)
-    trade_penalty = max(0.0, (min_trades - trades) / max(1, min_trades))
     if trades <= 0:
         return -999.0
+    trade_penalty = max(0.0, (min_trades - trades) / max(1, min_trades))
+    if trades < min_trades / 2:
+        trade_penalty += 0.75
     score = (
-        annual * 35
-        + cumulative * 10
-        + sharpe * 3
-        + win_rate * 8
-        + avg_trade * 80
-        - drawdown * 35
-        - trade_penalty * 25
+        annual * 25
+        + cumulative * 8
+        + sharpe * 5
+        + win_rate * 6
+        + avg_trade * 60
+        - drawdown * 60
+        - worst_trade * 25
+        - trade_penalty * 40
     )
     return round(score, 6)
 

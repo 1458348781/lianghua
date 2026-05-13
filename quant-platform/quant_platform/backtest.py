@@ -136,7 +136,7 @@ class BacktestEngine:
         normalized["symbols"] = [normalize_symbol(symbol) for symbol in config.get("symbols", [])]
         normalized.setdefault("initial_cash", 1_000_000)
         normalized.setdefault("commission_rate", 0.0003)
-        normalized.setdefault("slippage_rate", 0.0005)
+        normalized.setdefault("slippage_rate", 0.001)
         normalized.setdefault("stamp_tax_rate", 0.001)
         if not normalized["symbols"]:
             raise ValueError("股票池不能为空")

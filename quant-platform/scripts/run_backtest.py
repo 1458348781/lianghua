@@ -37,7 +37,7 @@ def main() -> None:
         "end_date": args.end_date,
         "initial_cash": args.initial_cash,
         "commission_rate": 0.0003,
-        "slippage_rate": 0.0005,
+        "slippage_rate": 0.001,
         "stamp_tax_rate": 0.001,
         "params": params,
     }

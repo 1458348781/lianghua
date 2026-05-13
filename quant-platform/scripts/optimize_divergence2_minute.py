@@ -75,7 +75,7 @@ def main() -> None:
     parser.add_argument("--symbol-limit", type=int, default=0)
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument("--commission-rate", type=float, default=0.0003)
-    parser.add_argument("--slippage-rate", type=float, default=0.0)
+    parser.add_argument("--slippage-rate", type=float, default=0.001)
     parser.add_argument("--stamp-tax-rate", type=float, default=0.001)
     parser.add_argument("--minute-parquet-root", default=str(DEFAULT_MINUTE_PARQUET_ROOT))
     parser.add_argument("--minute-db-template", default="", help="Optional legacy SQLite template. Parquet root is used by default.")
@@ -224,9 +224,9 @@ def run_year_minute_backtest(
         return empty_result(float(args.get("initial_cash") or 1_000_000))
 
     cash = float(args.get("initial_cash") or 1_000_000)
-    commission_rate = float(args.get("commission_rate") or 0.0)
-    slippage_rate = float(args.get("slippage_rate") or 0.0)
-    stamp_tax_rate = float(args.get("stamp_tax_rate") or 0.0)
+    commission_rate = float(args["commission_rate"]) if "commission_rate" in args else 0.0003
+    slippage_rate = float(args["slippage_rate"]) if "slippage_rate" in args else 0.001
+    stamp_tax_rate = float(args["stamp_tax_rate"]) if "stamp_tax_rate" in args else 0.001
     max_positions = max(1, int(params.get("max_positions") or 4))
     hold_days = int(params.get("hold_days") or 0)
     positions: dict[str, Position] = {}
@@ -554,13 +554,19 @@ def aggregate_yearly_metrics(yearly: dict[str, dict[str, Any]]) -> dict[str, Any
     trade_count = sum(int(metrics.get("trade_count") or 0) for metrics in valid)
     buy_count = sum(int(metrics.get("buy_count") or 0) for metrics in valid)
     sell_count = sum(int(metrics.get("sell_count") or 0) for metrics in valid)
+    weighted_avg_trade = 0.0
+    if sell_count:
+        weighted_avg_trade = sum(
+            float(metrics.get("avg_trade_return") or 0) * int(metrics.get("sell_count") or 0)
+            for metrics in valid
+        ) / sell_count
     return {
         "cumulative_return": round(cumulative - 1, 6),
         "annual_return": round(sum(float(metrics.get("annual_return") or 0) for metrics in valid) / len(valid), 6),
         "max_drawdown": round(min(float(metrics.get("max_drawdown") or 0) for metrics in valid), 6),
         "sharpe": round(sum(float(metrics.get("sharpe") or 0) for metrics in valid) / len(valid), 4),
         "win_rate": round(sum(float(metrics.get("win_rate") or 0) for metrics in valid) / len(valid), 6),
-        "avg_trade_return": round(sum(float(metrics.get("avg_trade_return") or 0) for metrics in valid) / len(valid), 6),
+        "avg_trade_return": round(weighted_avg_trade, 6),
         "best_trade_return": round(max(float(metrics.get("best_trade_return") or 0) for metrics in valid), 6),
         "worst_trade_return": round(min(float(metrics.get("worst_trade_return") or 0) for metrics in valid), 6),
         "trade_count": trade_count,

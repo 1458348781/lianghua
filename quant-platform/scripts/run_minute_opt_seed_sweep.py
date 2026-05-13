@@ -63,7 +63,7 @@ def main() -> None:
     parser.add_argument("--symbol-limit", type=int, default=0)
     parser.add_argument("--initial-cash", type=float, default=1_000_000)
     parser.add_argument("--commission-rate", type=float, default=0.0003)
-    parser.add_argument("--slippage-rate", type=float, default=0.0)
+    parser.add_argument("--slippage-rate", type=float, default=0.001)
     parser.add_argument("--stamp-tax-rate", type=float, default=0.001)
     parser.add_argument("--minute-parquet-root", default=str(DEFAULT_MINUTE_PARQUET_ROOT))
     parser.add_argument("--minute-db-template", default="")

@@ -198,7 +198,7 @@ def run_one(combo: dict[str, Any], year_data: YearData) -> dict[str, Any]:
         "end_date": year_data.end_date,
         "initial_cash": 1_000_000,
         "commission_rate": 0.0003,
-        "slippage_rate": 0.0005,
+        "slippage_rate": 0.001,
         "stamp_tax_rate": 0.001,
         "params": combo["params"],
         "universe": "all",

@@ -177,7 +177,7 @@ class DivergenceMinuteBacktestEngine:
         normalized["symbols"] = [normalize_symbol(symbol) for symbol in config.get("symbols", [])]
         normalized.setdefault("initial_cash", 1_000_000)
         normalized.setdefault("commission_rate", 0.0003)
-        normalized.setdefault("slippage_rate", 0.0005)
+        normalized.setdefault("slippage_rate", 0.001)
         normalized.setdefault("stamp_tax_rate", 0.001)
         normalized.setdefault("params", {})
         normalized.setdefault("minute_parquet_root", str(DEFAULT_MINUTE_PARQUET_ROOT))

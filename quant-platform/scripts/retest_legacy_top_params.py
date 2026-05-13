@@ -194,7 +194,7 @@ def run_backtest(symbols: list[str], params: dict[str, Any], start_date: str, en
         "data_start_date": scan_start_with_buffer(start_date),
         "initial_cash": initial_cash,
         "commission_rate": 0.0003,
-        "slippage_rate": 0.0005,
+        "slippage_rate": 0.001,
         "stamp_tax_rate": 0.001,
         "params": params,
     }
