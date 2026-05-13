@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--top-bases", type=int, default=5, help="How many unique top parameter sets to refine.")
     parser.add_argument("--trials-per-base", type=int, default=1000)
+    parser.add_argument("--early-stop", type=int, default=300, help="Stop a base after this many completed combos without a new best score.")
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--seeds", nargs="*", type=int, default=DEFAULT_SEEDS)
     parser.add_argument("--start-date", default="2023-01-01")
@@ -94,6 +95,7 @@ def main() -> None:
                 "output_dir": str(output_dir),
                 "top_bases": args.top_bases,
                 "trials_per_base": args.trials_per_base,
+                "early_stop": args.early_stop,
                 "workers": args.workers,
                 "seeds": args.seeds,
                 "start_date": args.start_date,
@@ -119,7 +121,7 @@ def main() -> None:
 
     print(
         f"[refine-best] bases={len(base_rows)} trials_per_base={args.trials_per_base} "
-        f"workers={args.workers} output={output_dir}",
+        f"workers={args.workers} early_stop={args.early_stop} output={output_dir}",
         flush=True,
     )
     all_rows: list[dict[str, Any]] = []
@@ -231,6 +233,8 @@ def run_base(
     completed = 0
     best_score: float | None = None
     best_combo = ""
+    stale_completed = 0
+    early_stopped = False
     started = time.perf_counter()
 
     print(
@@ -238,6 +242,11 @@ def run_base(
         f"source_combo={base_row['source_combo_id']} seed={seed} combos={len(params_list)}",
         flush=True,
     )
+    try:
+        best_score = float(base_row["source_score"])
+    except (TypeError, ValueError):
+        best_score = None
+
     with summary_path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
@@ -257,13 +266,26 @@ def run_base(
                     if best_score is None or score > best_score:
                         best_score = score
                         best_combo = str(row.get("combo_id", combo_number))
+                        stale_completed = 0
+                    else:
+                        stale_completed += 1
                     if completed == 1 or completed % 25 == 0 or completed == len(params_list):
                         print(
                             f"[refine-best] base_rank={rank} done={completed}/{len(params_list)} "
-                            f"submitted={submitted} best={best_score:.6f}",
+                            f"submitted={submitted} stale={stale_completed} best={best_score:.6f}",
                             flush=True,
                         )
+                    if int(args.early_stop) > 0 and stale_completed >= int(args.early_stop):
+                        early_stopped = True
+                        print(
+                            f"[refine-best] base_rank={rank} early_stop stale={stale_completed} "
+                            f"completed={completed} best={best_score:.6f}",
+                            flush=True,
+                        )
+                        break
                 fh.flush()
+                if early_stopped:
+                    break
                 submitted = submit_more(pool, futures, params_list, submitted, rank, max_workers)
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
@@ -276,6 +298,8 @@ def run_base(
         "seed": seed,
         "completed": completed,
         "submitted": submitted,
+        "early_stopped": early_stopped,
+        "stale_completed": stale_completed,
         "source_score": base_row["source_score"],
         "source_combo_id": base_row["source_combo_id"],
         "source_path": base_row["source_path"],
@@ -319,6 +343,8 @@ def write_base_report(path: Path, reports: list[dict[str, Any]]) -> None:
         "seed",
         "completed",
         "submitted",
+        "early_stopped",
+        "stale_completed",
         "source_score",
         "source_combo_id",
         "source_path",
