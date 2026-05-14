@@ -292,7 +292,7 @@ def sample_local_params(rng: random.Random, base_params: dict[str, Any]) -> dict
     params.update(
         {
             "max_positions": sample_int_near(rng, base_params["max_positions"], 1, 2, 6),
-            "hold_days": sample_int_near(rng, base_params["hold_days"], 2, 2, 8),
+            "hold_days": sample_int_near(rng, base_params["hold_days"], 1, 2, 8),
             "stop_loss": sample_discrete_near(
                 rng,
                 float(base_params["stop_loss"]),
