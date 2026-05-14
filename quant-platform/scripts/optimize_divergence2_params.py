@@ -266,7 +266,7 @@ def sample_global_params(rng: random.Random, base_params: dict[str, Any]) -> dic
         {
             "max_positions": rng.choice([1, 2, 3, 4, 5, 6, 7, 8]),
             "hold_days": rng.choice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
-            "stop_loss": round(rng.choice([-0.01, -0.015, -0.02, -0.025, -0.03, -0.035, -0.04, -0.05, -0.06]), 4),
+            "stop_loss": sample_float_near_step(rng, -0.035, 0.025, -0.06, -0.01, 0.0025, 4),
             "min_turnover": round(rng.uniform(0.5, 8.0), 1),
             "max_turnover": round(rng.uniform(10.0, 50.0), 1),
             "day1_min_volume_ratio": round(rng.uniform(0.5, 2.5), 2),
@@ -293,12 +293,7 @@ def sample_local_params(rng: random.Random, base_params: dict[str, Any]) -> dict
         {
             "max_positions": sample_int_near(rng, base_params["max_positions"], 1, 2, 6),
             "hold_days": sample_int_near(rng, base_params["hold_days"], 1, 2, 8),
-            "stop_loss": sample_discrete_near(
-                rng,
-                float(base_params["stop_loss"]),
-                [-0.015, -0.02, -0.025, -0.03, -0.035],
-                radius=1,
-            ),
+            "stop_loss": sample_float_near_step(rng, base_params["stop_loss"], 0.005, -0.06, -0.01, 0.001, 4),
             "min_turnover": sample_float_near(rng, base_params["min_turnover"], 0.6, 1.0, 5.0, 1),
             "max_turnover": sample_float_near(rng, base_params["max_turnover"], 2.0, 18.0, 35.0, 1),
             "day1_min_volume_ratio": sample_float_near(rng, base_params["day1_min_volume_ratio"], 0.15, 0.8, 1.8, 2),
@@ -357,8 +352,8 @@ def sample_float_near_step(
     value = float(center)
     lower = max(low, value - radius)
     upper = min(high, value + radius)
-    start = int((lower + 1e-12) / step + 0.999999)
-    end = int((upper + 1e-12) / step)
+    start = math.ceil((lower - 1e-12) / step)
+    end = math.floor((upper + 1e-12) / step)
     if start > end:
         return round(min(max(value, low), high), digits)
     return round(rng.randint(start, end) * step, digits)
