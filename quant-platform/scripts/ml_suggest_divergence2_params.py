@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from lightgbm import LGBMRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -53,7 +54,11 @@ def main() -> None:
     parser.add_argument("--top-n", type=int, default=1000)
     parser.add_argument("--top-bases", type=int, default=25, help="How many best historical params to search around.")
     parser.add_argument("--global-ratio", type=float, default=0.35, help="Share of candidates sampled from broad space.")
+    parser.add_argument("--model", choices=["random_forest", "lightgbm"], default="random_forest")
+    parser.add_argument("--device", choices=["cpu", "gpu"], default="cpu", help="Only used by --model lightgbm.")
     parser.add_argument("--trees", type=int, default=500)
+    parser.add_argument("--learning-rate", type=float, default=0.05, help="Only used by --model lightgbm.")
+    parser.add_argument("--num-leaves", type=int, default=31, help="Only used by --model lightgbm.")
     parser.add_argument("--min-score", type=float, default=-998.0)
     parser.add_argument("--seed", type=int, default=20260514)
     parser.add_argument("--allow-seen", action="store_true", help="Allow suggesting params already present in history.")
@@ -185,22 +190,65 @@ def load_history(input_root: Path, min_score: float) -> HistoryLoadResult:
     return HistoryLoadResult(frame, files_scanned, rows_seen, len(rows))
 
 
-def train_model(frame: pd.DataFrame, args: argparse.Namespace) -> tuple[RandomForestRegressor, dict[str, Any], pd.DataFrame]:
+def train_model(frame: pd.DataFrame, args: argparse.Namespace) -> tuple[Any, dict[str, Any], pd.DataFrame]:
     x = frame[PARAM_COLUMNS]
     y = frame["score"].astype(float)
     test_size = 0.2 if len(frame) >= 100 else 0.25
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=test_size, random_state=int(args.seed))
-    model = RandomForestRegressor(
-        n_estimators=max(50, int(args.trees)),
-        max_features="sqrt",
-        min_samples_leaf=2,
-        n_jobs=-1,
-        random_state=int(args.seed),
-    )
-    model.fit(x_train, y_train)
+    device_effective = str(args.device)
+    if args.model == "lightgbm":
+        model = LGBMRegressor(
+            n_estimators=max(50, int(args.trees)),
+            learning_rate=float(args.learning_rate),
+            num_leaves=max(8, int(args.num_leaves)),
+            min_child_samples=10,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            reg_lambda=1.0,
+            objective="regression",
+            device_type=str(args.device),
+            gpu_use_dp=False,
+            n_jobs=-1,
+            random_state=int(args.seed),
+            verbosity=-1,
+        )
+        try:
+            model.fit(x_train, y_train)
+        except Exception as exc:
+            if args.device != "gpu":
+                raise
+            print(f"[ml-suggest] LightGBM GPU failed, falling back to CPU: {type(exc).__name__}: {exc}", flush=True)
+            device_effective = "cpu"
+            model = LGBMRegressor(
+                n_estimators=max(50, int(args.trees)),
+                learning_rate=float(args.learning_rate),
+                num_leaves=max(8, int(args.num_leaves)),
+                min_child_samples=10,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                reg_lambda=1.0,
+                objective="regression",
+                device_type="cpu",
+                n_jobs=-1,
+                random_state=int(args.seed),
+                verbosity=-1,
+            )
+            model.fit(x_train, y_train)
+    else:
+        model = RandomForestRegressor(
+            n_estimators=max(50, int(args.trees)),
+            max_features="sqrt",
+            min_samples_leaf=2,
+            n_jobs=-1,
+            random_state=int(args.seed),
+        )
+        model.fit(x_train, y_train)
     train_pred = model.predict(x_train)
     test_pred = model.predict(x_test)
     metrics = {
+        "model": str(args.model),
+        "requested_device": str(args.device),
+        "effective_device": device_effective,
         "train_r2": round(float(r2_score(y_train, train_pred)), 6),
         "test_r2": round(float(r2_score(y_test, test_pred)), 6),
         "train_mae": round(float(mean_absolute_error(y_train, train_pred)), 6),
