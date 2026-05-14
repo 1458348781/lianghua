@@ -264,8 +264,8 @@ def sample_global_params(rng: random.Random, base_params: dict[str, Any]) -> dic
     params = dict(base_params)
     params.update(
         {
-            "max_positions": rng.choice([2, 3, 4, 5]),
-            "hold_days": rng.choice([3, 4, 5, 6, 7]),
+            "max_positions": rng.choice([2, 3, 4, 5, 6]),
+            "hold_days": rng.choice([2, 3, 4, 5, 6, 7, 8]),
             "stop_loss": round(rng.choice([-0.015, -0.02, -0.025, -0.03, -0.035]), 4),
             "min_turnover": round(rng.uniform(1.0, 5.0), 1),
             "max_turnover": round(rng.uniform(18.0, 35.0), 1),
@@ -291,8 +291,8 @@ def sample_local_params(rng: random.Random, base_params: dict[str, Any]) -> dict
     params = dict(base_params)
     params.update(
         {
-            "max_positions": sample_int_near(rng, base_params["max_positions"], 1, 2, 5),
-            "hold_days": sample_int_near(rng, base_params["hold_days"], 1, 3, 7),
+            "max_positions": sample_int_near(rng, base_params["max_positions"], 1, 2, 6),
+            "hold_days": sample_int_near(rng, base_params["hold_days"], 2, 2, 8),
             "stop_loss": sample_discrete_near(
                 rng,
                 float(base_params["stop_loss"]),
